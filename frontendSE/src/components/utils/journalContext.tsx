@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { api } from '../../api';
 
 export interface JournalEntry {
   id: string;
@@ -19,14 +20,57 @@ interface JournalContextType {
 const JournalContext = createContext<JournalContextType | undefined>(undefined);
 
 export const JournalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
-    const stored = localStorage.getItem('journalEntries');
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('journalEntries', JSON.stringify(journalEntries));
-  }, [journalEntries]);
+    let mounted = true;
+    async function resolveKey() {
+      const token = localStorage.getItem('token');
+      let key = 'journalEntries:anon';
+      if (token) {
+        try {
+          const res = await api.me(token);
+          const userObj = res?.user ?? res;
+          const id = userObj?._id ?? userObj?.id ?? userObj?.userId;
+          if (id) key = `journalEntries:${id}`;
+        } catch (e) {
+          // ignore
+        }
+      }
+      if (!mounted) return;
+      setStorageKey(key);
+
+      try {
+        const legacy = localStorage.getItem('journalEntries');
+        if (legacy) {
+          const existing = localStorage.getItem(key);
+          if (!existing) localStorage.setItem(key, legacy);
+        }
+      } catch (e) {
+        // noop
+      }
+    }
+    resolveKey();
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      try { setJournalEntries(JSON.parse(stored)); }
+      catch { setJournalEntries([]); }
+    } else {
+      setJournalEntries([]);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(journalEntries)); }
+    catch { /* ignore */ }
+  }, [journalEntries, storageKey]);
 
   const addJournalEntry = (entry: Omit<JournalEntry, 'id' | 'timestamp'>) => {
     const newEntry: JournalEntry = {

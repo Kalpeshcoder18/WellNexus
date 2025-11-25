@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { api } from '../../api';
 
 export interface PlannedMeal {
   id: string;
@@ -27,14 +28,61 @@ interface MealPlannerContextType {
 const MealPlannerContext = createContext<MealPlannerContextType | undefined>(undefined);
 
 export const MealPlannerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [plannedMeals, setPlannedMeals] = useState<PlannedMeal[]>(() => {
-    const stored = localStorage.getItem('plannedMeals');
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [plannedMeals, setPlannedMeals] = useState<PlannedMeal[]>([]);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
 
+  // resolve per-user key and migrate legacy data
   useEffect(() => {
-    localStorage.setItem('plannedMeals', JSON.stringify(plannedMeals));
-  }, [plannedMeals]);
+    let mounted = true;
+    async function resolveKey() {
+      const token = localStorage.getItem('token');
+      let key = 'plannedMeals:anon';
+      if (token) {
+        try {
+          const res = await api.me(token);
+          const userObj = res?.user ?? res;
+          const id = userObj?._id ?? userObj?.id ?? userObj?.userId;
+          if (id) key = `plannedMeals:${id}`;
+        } catch (e) {
+          // ignore
+        }
+      }
+      if (!mounted) return;
+      setStorageKey(key);
+
+      // migrate legacy global key into user-scoped key if present
+      try {
+        const legacy = localStorage.getItem('plannedMeals');
+        if (legacy) {
+          const existing = localStorage.getItem(key);
+          if (!existing) localStorage.setItem(key, legacy);
+        }
+      } catch (e) {
+        // noop
+      }
+    }
+    resolveKey();
+    return () => { mounted = false; };
+  }, []);
+
+  // load from resolved key
+  useEffect(() => {
+    if (!storageKey) return;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      try { setPlannedMeals(JSON.parse(stored)); }
+      catch { setPlannedMeals([]); }
+    } else {
+      setPlannedMeals([]);
+    }
+  }, [storageKey]);
+
+  // persist into resolved key
+  useEffect(() => {
+    if (!storageKey) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(plannedMeals)); }
+    catch { /* ignore */ }
+  }, [plannedMeals, storageKey]);
 
   const addPlannedMeal = (meal: Omit<PlannedMeal, 'id'>) => {
     const newMeal: PlannedMeal = {

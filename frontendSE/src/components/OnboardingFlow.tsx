@@ -11,6 +11,10 @@ import { Textarea } from './ui/textarea';
 import { Alert, AlertDescription } from './ui/alert';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import BMICalculator from './BMICalculator';
+import { api } from "../api/index";
+import { updateProfile } from "../api/index";
+
+
 
 interface OnboardingProps {
   onComplete: (profile: any) => void;
@@ -77,109 +81,117 @@ export default function OnboardingFlow({ onComplete }: OnboardingProps) {
   const totalSteps = 4; // Profile, goals, BMI calculator, medical
 
   // Auto-advance through welcome slides
-  useEffect(() => {
+   useEffect(() => {
     if (showWelcomeSlides && welcomeSubStep < welcomeSteps.length - 1) {
       const timer = setTimeout(() => {
-        setWelcomeSubStep(welcomeSubStep + 1);
-      }, 3000); // Auto advance every 3 seconds
-
+        setWelcomeSubStep((prev) => prev + 1);
+      }, 2500);
       return () => clearTimeout(timer);
     }
   }, [welcomeSubStep, showWelcomeSlides]);
 
   const validateProfileStep = () => {
-    if (!profile.name.trim()) {
-      setValidationError('Please enter your name');
-      return false;
-    }
-    if (!profile.age || parseInt(profile.age) <= 0) {
-      setValidationError('Please enter a valid age');
-      return false;
-    }
-    if (!profile.gender) {
-      setValidationError('Please select your gender');
-      return false;
-    }
-    if (!profile.height || parseInt(profile.height) <= 0) {
-      setValidationError('Please enter a valid height');
-      return false;
-    }
-    if (!profile.weight || parseInt(profile.weight) <= 0) {
-      setValidationError('Please enter a valid weight');
-      return false;
-    }
+    if (!profile.name.trim()) return setError("Please enter your name");
+    if (!profile.age || Number(profile.age) <= 0) return setError("Enter valid age");
+    if (!profile.gender) return setError("Please select gender");
+    if (!profile.height || Number(profile.height) <= 0) return setError("Enter valid height");
+    if (!profile.weight || Number(profile.weight) <= 0) return setError("Enter valid weight");
     return true;
   };
 
-  const validateGoalsStep = () => {
-    if (profile.goals.length === 0) {
-      setValidationError('Please select at least one goal');
-      return false;
-    }
+   const validateGoalsStep = () => {
+    if (profile.goals.length === 0) return setError("Select at least one goal");
     return true;
   };
-
+   const setError = (msg: string) => {
+    setValidationError(msg);
+    return false;
+  };
   const handleStartJourney = () => {
     setShowWelcomeSlides(false);
   };
 
-  const nextStep = () => {
-    setValidationError('');
+  const nextStep = async () => {
+    setValidationError("");
 
-    // Validate profile step (step 0)
-    if (currentStep === 0 && !validateProfileStep()) {
+    if (currentStep === 0 && !validateProfileStep()) return;
+    if (currentStep === 1 && !validateGoalsStep()) return;
+
+    // Final step → save to backend
+    if (currentStep === totalSteps - 1) {
+      await finishOnboarding();
       return;
     }
 
-    // Validate goals step (step 1)
-    if (currentStep === 1 && !validateGoalsStep()) {
-      return;
-    }
-
-    if (currentStep < totalSteps - 1) {
-      setCurrentStep(currentStep + 1);
-    } else {
-      onComplete({
-        ...profile,
-        age: parseInt(profile.age),
-        height: parseInt(profile.height),
-        weight: parseInt(profile.weight),
-        medications: profile.medications.split(',').map(m => m.trim()).filter(Boolean),
-      });
-    }
-  };
+    setCurrentStep((prev) => prev + 1);
+  }
 
   const prevStep = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
-    }
+    if (currentStep > 0) setCurrentStep((prev) => prev - 1);
   };
 
-  const updateLifestyle = (type: string, value: number[]) => {
-    setProfile(prev => ({
+    const updateLifestyle = (type: string, value: number[]) => {
+    setProfile((prev) => ({
       ...prev,
-      lifestyle: { ...prev.lifestyle, [type]: value[0] }
+      lifestyle: { ...prev.lifestyle, [type]: value[0] },
     }));
   };
 
   const toggleGoal = (goalId: string) => {
-    setProfile(prev => ({
+    setProfile((prev) => ({
       ...prev,
       goals: prev.goals.includes(goalId)
-        ? prev.goals.filter(g => g !== goalId)
-        : [...prev.goals, goalId]
+        ? prev.goals.filter((g) => g !== goalId)
+        : [...prev.goals, goalId],
     }));
-    setValidationError('');
   };
 
   const toggleCondition = (condition: string) => {
-    setProfile(prev => ({
+    setProfile((prev) => ({
       ...prev,
       medicalConditions: prev.medicalConditions.includes(condition)
-        ? prev.medicalConditions.filter(c => c !== condition)
-        : [...prev.medicalConditions, condition]
+        ? prev.medicalConditions.filter((c) => c !== condition)
+        : [...prev.medicalConditions, condition],
     }));
   };
+
+
+    // --------------------------
+  // 🔥 FINISH ONBOARDING (IMPORTANT)
+  // --------------------------
+// inside the component
+
+  // =============== ⭐ FINAL SUBMIT FUNCTION (IMPORTANT) ===============
+ // inside OnboardingFlow: final submit
+const finishOnboarding = async () => {
+  setValidationError('');
+
+  const finalProfile = {
+    ...profile,
+    age: Number(profile.age),
+    height: Number(profile.height),
+    weight: Number(profile.weight),
+    medications: profile.medications
+      .split(',')
+      .map((m: string) => m.trim())
+      .filter(Boolean),
+    isOnboarded: true,
+  };
+
+  try {
+    const token = localStorage.getItem('token') || undefined;
+    const res = await updateProfile(finalProfile, token); // uses function from api/index.ts
+    // If backend returns { user }, use it; otherwise fallback to finalProfile
+    const returnedUser = (res && res.user) ? res.user : finalProfile;
+    // notify App and pass returned user so App can merge properly
+    onComplete(returnedUser);
+  } catch (err: any) {
+    console.error("Onboarding save failed:", err);
+    setValidationError(err?.message || "Failed to save profile. Try again.");
+  }
+};
+
+
 
   const renderWelcomeSlides = () => {
     const floatingIcons = [
@@ -659,7 +671,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingProps) {
           Back
         </Button>
         <Button onClick={nextStep} className="bg-gradient-to-r from-blue-500 to-green-500 hover:from-blue-600 hover:to-green-600">
-          {currentStep === totalSteps - 1 ? "Complete Setup" : "Continue"}
+          {currentStep === totalSteps - 1 ? "Complete Setup" : "Next"}
           <ChevronRight className="w-4 h-4 ml-2" />
         </Button>
       </motion.div>

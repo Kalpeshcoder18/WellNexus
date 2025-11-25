@@ -59,7 +59,9 @@ exports.getMessages = async (req, res, next) => {
 exports.postMessage = async (req, res, next) => {
   try {
     const userId = req.user._id;
-    const { conversationId, content, attachments, role } = req.body;
+    // conversationId can come in the body or as a URL param (/:id/messages)
+    const conversationId = req.body.conversationId || req.params.id;
+    const { content, attachments, role } = req.body;
     if (!conversationId || !content) return res.status(400).json({ message: 'conversationId and content required' });
 
     const c = await Conversation.findById(conversationId);

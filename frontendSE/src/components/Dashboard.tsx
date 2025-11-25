@@ -17,6 +17,8 @@ import { useMealContext } from './utils/mealContext';
 import { useMoodContext } from './utils/moodContext';
 import { useWorkout } from './utils/workoutContext';
 import { getWorkoutById } from './utils/workoutDatabase';
+import { api } from "../api/index";
+import { updateProfile } from "../api/index";
 
 interface DashboardProps {
   userProfile: any;
@@ -72,6 +74,12 @@ const weeklyProgress = [
 ];
 
 export default function Dashboard({ userProfile, onNavigate }: DashboardProps) {
+  const token = localStorage.getItem("token") || "";
+
+// backend data states
+const [todayCalories, setTodayCalories] = useState(0);
+const [backendWorkouts, setBackendWorkouts] = useState([]);
+
   const [currentMood, setCurrentMood] = useState<number | null>(null);
   const [currentQuoteIndex, setCurrentQuoteIndex] = useState(0);
   const [greeting, setGreeting] = useState('');
@@ -101,6 +109,53 @@ export default function Dashboard({ userProfile, onNavigate }: DashboardProps) {
     else setGreeting('Good evening');
   }, []);
 
+  // Load data from backend when dashboard loads
+useEffect(() => {
+  async function loadData() {
+    try {
+      const today = new Date().toISOString().split("T")[0];
+
+      // Fetch meals (calories) and compute totals from returned array
+      const mealsRes = await api.getMeals(today, token);
+      const mealsArray = mealsRes?.meals || [];
+      const totalCalories = mealsArray.reduce((sum: number, m: any) => sum + (m.calories || 0), 0);
+      setTodayCalories(totalCalories || 0);
+
+      // Fetch workouts
+      const workoutsRes = await api.getWorkouts(token);
+      setBackendWorkouts(workoutsRes.workouts || []);
+    } catch (err) {
+      console.error("Dashboard API error:", err);
+    }
+  }
+
+  loadData();
+}, []);
+
+// Listen for meal updates from other parts of the app (e.g. Nutrition tracker)
+useEffect(() => {
+  const onMealsUpdated = async (e: any) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const mealsRes = await api.getMeals(today, token);
+      const mealsArray = mealsRes?.meals || [];
+      const totalCalories = mealsArray.reduce((sum: number, m: any) => sum + (m.calories || 0), 0);
+      setTodayCalories(totalCalories || 0);
+    } catch (err) {
+      console.error('Failed to refresh meals after update:', err);
+    }
+  };
+
+  window.addEventListener('meals:updated', onMealsUpdated as EventListener);
+  return () => window.removeEventListener('meals:updated', onMealsUpdated as EventListener);
+}, [token]);
+
+useEffect(() => {
+  console.log("Dashboard userProfile:", userProfile);
+}, [userProfile]);
+
+
+
   // Calculate user's calorie target using shared utility
   const { targetCalories, macros } = calculateAllHealthMetrics(
     userProfile.height,
@@ -111,7 +166,8 @@ export default function Dashboard({ userProfile, onNavigate }: DashboardProps) {
   );
 
   // Get actual logged calorie intake from meal context
-  const currentCalories = getTotalCalories();
+  const currentCalories = todayCalories;
+
   const calorieProgress = Math.round((currentCalories / targetCalories) * 100);
 
   // Create calorie data based on actual macros
@@ -200,6 +256,9 @@ export default function Dashboard({ userProfile, onNavigate }: DashboardProps) {
         </div>
       </motion.div>
 
+
+
+
       {/* Summary Cards */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -208,7 +267,13 @@ export default function Dashboard({ userProfile, onNavigate }: DashboardProps) {
         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
       >
         {/* BMI Widget */}
-        <BMIWidget userProfile={userProfile} />
+           <BMIWidget userProfile={{
+      age: userProfile.age ?? 0,
+      gender: userProfile.gender ?? 'male',
+      height: Number(userProfile.height) || 0,
+      weight: Number(userProfile.weight) || 0,
+      goals: userProfile.goals ?? []
+    }} />
         {/* Calorie Intake */}
         <Card className="relative overflow-hidden">
           <CardHeader className="pb-2">

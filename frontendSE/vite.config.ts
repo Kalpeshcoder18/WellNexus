@@ -56,5 +56,14 @@
     server: {
       port: 3000,
       open: true,
+      // Proxy API requests to the backend during development
+      proxy: {
+        '/api': {
+          target: 'http://localhost:5000',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/api/, '/api')
+        }
+      }
     },
   });

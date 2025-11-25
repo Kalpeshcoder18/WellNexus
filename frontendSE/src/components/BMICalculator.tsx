@@ -6,13 +6,13 @@ import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { calculateAllHealthMetrics } from './utils/healthCalculations';
 import { foodDatabase } from './utils/foodDatabase';
-
+import { updateProfile } from "../api/index";
 interface BMICalculatorProps {
   profile: {
     age: string;
     gender: string;
-    height: string;
-    weight: string;
+    height: number;
+    weight: number;
     goals: string[];
   };
 }

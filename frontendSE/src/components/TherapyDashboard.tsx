@@ -1,3 +1,4 @@
+// /mnt/data/TherapyDashboard.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { 
@@ -38,41 +39,12 @@ const sessionHistory = [
   { date: '2025-10-19', topic: 'Motivation', duration: '35 min', rating: 4 },
 ];
 
-const aiResponses: { [key: string]: string[] } = {
-  default: [
-    "I'm here to support you. Can you tell me more about what's on your mind?",
-    "That sounds challenging. How have you been coping with this?",
-    "Thank you for sharing. What would you like to explore today?",
-    "I appreciate you opening up. Let's work through this together.",
-  ],
-  stress: [
-    "Stress is a natural response. Let's explore some techniques to manage it better. Have you tried deep breathing exercises?",
-    "I hear that you're feeling stressed. What are the main sources of stress in your life right now?",
-    "Managing stress is important for overall wellbeing. Would you like to try a quick relaxation exercise?",
-  ],
-  anxiety: [
-    "Anxiety can be overwhelming. Remember, you're not alone in this. What triggers your anxiety most?",
-    "Let's work on some grounding techniques. Can you name 5 things you can see right now?",
-    "Your feelings are valid. Have you noticed any patterns in when your anxiety tends to increase?",
-  ],
-  sleep: [
-    "Good sleep is essential for mental health. What's your current bedtime routine like?",
-    "Sleep issues often have underlying causes. Have you noticed anything specific that keeps you awake?",
-    "Let's create a sleep hygiene plan together. What time do you typically try to go to bed?",
-  ],
-  motivation: [
-    "Motivation can fluctuate, and that's normal. What are your current goals?",
-    "Sometimes breaking big goals into smaller steps helps. What's one small thing you'd like to accomplish today?",
-    "Tell me about a time when you felt really motivated. What was different then?",
-  ],
-};
-
 export default function TherapyDashboard({ userProfile }: TherapyDashboardProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       sender: 'therapist',
-      content: `Hello ${userProfile.name || 'there'}! I'm your AI wellness companion. I'm here to provide a safe, supportive space for you to explore your thoughts and feelings. How are you feeling today?`,
+      content: `Hello ${userProfile?.name || 'there'}! I'm your AI wellness companion. I'm here to provide a safe, supportive space for you to explore your thoughts and feelings. How are you feeling today?`,
       timestamp: new Date(),
     },
   ]);
@@ -82,50 +54,144 @@ export default function TherapyDashboard({ userProfile }: TherapyDashboardProps)
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // scroll to bottom when messages change
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const detectTopic = (message: string): string => {
-    const lowerMessage = message.toLowerCase();
-    if (lowerMessage.includes('stress') || lowerMessage.includes('stressed')) return 'stress';
-    if (lowerMessage.includes('anxious') || lowerMessage.includes('anxiety') || lowerMessage.includes('worried')) return 'anxiety';
-    if (lowerMessage.includes('sleep') || lowerMessage.includes('insomnia') || lowerMessage.includes('tired')) return 'sleep';
-    if (lowerMessage.includes('motivation') || lowerMessage.includes('motivated') || lowerMessage.includes('goal')) return 'motivation';
-    return 'default';
+  // build a trimmed conversation suitable for the model (keeps last N messages)
+  const buildModelHistory = (history: Message[], maxEntries = 12) => {
+    // convert each message to { role, content }
+    const converted = history.map(m => ({
+      role: m.sender === 'user' ? 'user' as const : 'assistant' as const,
+      content: m.content
+    }));
+    return converted.slice(-maxEntries);
   };
 
-  const getAIResponse = (userMessage: string): string => {
-    const topic = detectTopic(userMessage);
-    const responses = aiResponses[topic] || aiResponses.default;
-    return responses[Math.floor(Math.random() * responses.length)];
-  };
-
-  const handleSendMessage = () => {
-    if (!inputMessage.trim()) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      sender: 'user',
-      content: inputMessage,
-      timestamp: new Date(),
+  // send conversation to backend route and return assistant reply text
+ // ---------- REPLACE sendToAI ----------
+const sendToAI = async (history: Message[]): Promise<string> => {
+  try {
+    const systemPrompt = {
+      role: "system",
+      content:
+        "You are a compassionate mental health assistant. Be supportive, empathetic and safe. Ask clarifying questions first."
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputMessage('');
-    setIsTyping(true);
+    const messagesForAPI = [systemPrompt, ...history.map(m => ({
+      role: m.sender === "user" ? "user" : "assistant",
+      content: m.content
+    })).slice(-12)];
 
-    // Simulate AI thinking time
-    setTimeout(() => {
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        sender: 'therapist',
-        content: getAIResponse(inputMessage),
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, aiMessage]);
-      setIsTyping(false);
-    }, 1500);
+    const token = localStorage.getItem("token") || undefined;
+
+    // IMPORTANT: if your frontend and backend are on different ports without a proxy,
+    // replace '/api/therapy/chat' with 'http://localhost:5000/api/therapy/chat'
+    const endpoint = "/api/therapy/chat";
+
+    console.log("[Therapy] sending to backend:", { endpoint, messagesForAPI, tokenPresent: !!token });
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ messages: messagesForAPI })
+    });
+
+    // debug: log status and raw text
+    const text = await res.text();
+    console.log("[Therapy] raw response text:", text);
+
+    let json;
+    try { json = JSON.parse(text); } catch (e) { json = null; }
+
+    if (!res.ok) {
+      console.error("[Therapy] backend responded non-OK:", res.status, json || text);
+      // show friendly message to UI
+      return "Sorry, the assistant is currently unavailable (backend error).";
+    }
+
+    // Prefer { reply } if backend returns it
+    if (json?.reply && typeof json.reply === "string") {
+      console.log("[Therapy] reply (reply field):", json.reply);
+      return json.reply;
+    }
+
+    // Try v1beta candidates shape: candidates[].content.parts[].text
+    if (json?.raw && json.raw.candidates && Array.isArray(json.raw.candidates)) {
+      const c = json.raw.candidates[0];
+      if (c?.content?.parts && Array.isArray(c.content.parts)) {
+        const reply = c.content.parts.map((p: any) => p.text || p).join("\n");
+        console.log("[Therapy] reply (raw.candidates):", reply);
+        return reply;
+      }
+    }
+
+    // Try top-level candidates (some backends return directly)
+    if (json?.candidates && Array.isArray(json.candidates)) {
+      const c = json.candidates[0];
+      if (c?.content?.parts && Array.isArray(c.content.parts)) {
+        return c.content.parts.map((p: any) => p.text || p).join("\n");
+      } else if (typeof c === "string") {
+        return c;
+      }
+    }
+
+    // fallback: if response has 'raw' with nested content
+    if (json?.raw) {
+      // attempt to extract text in common places
+      const raw = json.raw;
+      if (raw?.candidates?.[0]?.content?.parts) {
+        return raw.candidates[0].content.parts.map((p: any) => p.text || p).join("\n");
+      }
+      if (raw?.candidates?.[0]?.output) return raw.candidates[0].output;
+    }
+
+    // last fallback: use text body
+    if (text && text.length < 10000) return text;
+
+    return "I'm here with you — could you say a little more?";
+  } catch (err) {
+    console.error("[Therapy] sendToAI error:", err);
+    return "I’m having trouble contacting the assistant at the moment. Please try again.";
+  }
+};
+
+// ---------- REPLACE handleSendMessage ----------
+const handleSendMessage = async () => {
+  if (!inputMessage.trim()) return;
+
+  const userMessage: Message = {
+    id: Date.now().toString(),
+    sender: "user",
+    content: inputMessage.trim(),
+    timestamp: new Date(),
   };
+
+  setMessages(prev => [...prev, userMessage]);
+  setInputMessage("");
+  setIsTyping(true);
+
+  // capture current messages to send (including the new user message)
+  const historyToSend = [...messages, userMessage];
+
+  // TRY to call backend and receive reply
+  const aiReply = await sendToAI(historyToSend);
+
+  console.log("[Therapy] aiReply:", aiReply);
+
+  const aiMessage: Message = {
+    id: (Date.now() + 1).toString(),
+    sender: "therapist",
+    content: aiReply,
+    timestamp: new Date(),
+  };
+
+  setMessages(prev => [...prev, aiMessage]);
+  setIsTyping(false);
+};
 
   const handleQuickTopic = (topic: string) => {
     setSelectedTopic(topic);
@@ -136,6 +202,16 @@ export default function TherapyDashboard({ userProfile }: TherapyDashboardProps)
       motivation: "I'm struggling with motivation and need some guidance.",
     };
     setInputMessage(topicMessages[topic] || '');
+  };
+
+  // topic detection (used nowhere internally for AI, only for quick UI categorization)
+  const detectTopic = (message: string): string => {
+    const lowerMessage = message.toLowerCase();
+    if (lowerMessage.includes('stress') || lowerMessage.includes('stressed')) return 'stress';
+    if (lowerMessage.includes('anxious') || lowerMessage.includes('anxiety') || lowerMessage.includes('worried')) return 'anxiety';
+    if (lowerMessage.includes('sleep') || lowerMessage.includes('insomnia') || lowerMessage.includes('tired')) return 'sleep';
+    if (lowerMessage.includes('motivation') || lowerMessage.includes('motivated') || lowerMessage.includes('goal')) return 'motivation';
+    return 'default';
   };
 
   return (
@@ -349,7 +425,9 @@ export default function TherapyDashboard({ userProfile }: TherapyDashboardProps)
                           <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                         </div>
                         <span className="text-xs text-gray-500 mt-1 block px-1">
-                          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {message.timestamp instanceof Date
+                            ? message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                            : new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
                     </motion.div>
@@ -382,7 +460,7 @@ export default function TherapyDashboard({ userProfile }: TherapyDashboardProps)
                   placeholder="Type your message here..."
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
                   className="flex-1"
                 />
                 <Button 

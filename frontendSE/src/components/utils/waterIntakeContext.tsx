@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { api } from '../../api';
 
 export interface WaterEntry {
   id: string;
@@ -20,14 +21,57 @@ interface WaterIntakeContextType {
 const WaterIntakeContext = createContext<WaterIntakeContextType | undefined>(undefined);
 
 export const WaterIntakeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [waterEntries, setWaterEntries] = useState<WaterEntry[]>(() => {
-    const stored = localStorage.getItem('waterEntries');
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [waterEntries, setWaterEntries] = useState<WaterEntry[]>([]);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('waterEntries', JSON.stringify(waterEntries));
-  }, [waterEntries]);
+    let mounted = true;
+    async function resolveKey() {
+      const token = localStorage.getItem('token');
+      let key = 'waterEntries:anon';
+      if (token) {
+        try {
+          const res = await api.me(token);
+          const userObj = res?.user ?? res;
+          const id = userObj?._id ?? userObj?.id ?? userObj?.userId;
+          if (id) key = `waterEntries:${id}`;
+        } catch (e) {
+          // ignore and fallback
+        }
+      }
+      if (!mounted) return;
+      setStorageKey(key);
+
+      try {
+        const legacy = localStorage.getItem('waterEntries');
+        if (legacy) {
+          const existing = localStorage.getItem(key);
+          if (!existing) localStorage.setItem(key, legacy);
+        }
+      } catch (e) {
+        // noop
+      }
+    }
+    resolveKey();
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      try { setWaterEntries(JSON.parse(stored)); }
+      catch { setWaterEntries([]); }
+    } else {
+      setWaterEntries([]);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(waterEntries)); }
+    catch { /* ignore */ }
+  }, [waterEntries, storageKey]);
 
   const getTodayDate = () => {
     return new Date().toISOString().split('T')[0];

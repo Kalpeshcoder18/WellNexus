@@ -7,12 +7,14 @@ import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
 import { toast } from 'sonner@2.0.3';
+import { loginUser, registerUser, getMe } from '../api/auth';
+import { api } from "../api/index";
+import { updateProfile } from "../api/index";
+// interface LoginPageProps {
+//   onLogin: (email: string, password: string, loginMethod: 'email' | 'google') => void;
+// }
 
-interface LoginPageProps {
-  onLogin: (email: string, password: string, loginMethod: 'email' | 'google') => void;
-}
-
-export default function LoginPage({ onLogin }: LoginPageProps) {
+export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -32,43 +34,85 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setError('');
 
-    if (!email || !password) {
-      setError('Please fill in all fields');
-      return;
+  if (!email || !password) {
+    setError("Please fill in all fields");
+    return;
+  }
+
+  if (!validateEmail(email)) {
+    setError("Please enter a valid email");
+    return;
+  }
+
+  if (!isLogin && password !== confirmPassword) {
+    setError("Passwords do not match");
+    return;
+  }
+
+  setIsLoading(true);
+
+    try {
+    if (isLogin) {
+      // LOGIN
+      const result = await api.login(email, password);
+
+      if (!result.token) {
+        setError(result.message || "Invalid credentials");
+        toast.error(result.message || "Login failed");
+        setIsLoading(false);
+        return;
+      }
+
+      // Save token
+      localStorage.setItem("token", result.token);
+
+      // Get user info (populate client state if needed)
+      await api.me(result.token);
+
+      toast.success("Welcome back!");
+      // Navigate to home
+      window.location.href = "/";
+
+    } else {
+      // SIGNUP
+// SIGNUP
+const name = email.split("@")[0];
+      const result = await api.register(name, email, password);
+
+      if (!result.token) {
+        setError(result.message || "Signup failed");
+        toast.error(result.message || "Signup failed");
+        setIsLoading(false);
+        return;
+      }
+
+      localStorage.setItem("token", result.token);
+      toast.success("Account created! Please complete your profile.");
+      window.location.href = "/onboarding";
+
     }
+  } catch (err) {
+    console.error(err);
+    setError("Something went wrong");
+    toast.error("Something went wrong");
+  }
 
-    if (!validateEmail(email)) {
-      setError('Please enter a valid email address');
-      return;
-    }
+  setIsLoading(false);
+};
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
 
-    if (!isLogin && password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
 
-    setIsLoading(true);
-    setTimeout(() => {
-      toast.success(isLogin ? 'Welcome back!' : 'Account created successfully!');
-      onLogin(email, password, 'email');
-      setIsLoading(false);
-    }, 1000);
-  };
 
   const handleGoogleLogin = () => {
     setIsLoading(true);
     toast.success('Logging in with Google...');
     setTimeout(() => {
-      onLogin('google-user@example.com', '', 'google');
+      // Placeholder flow — implement OAuth flow separately
+      toast.info('Google login flow not configured in this demo');
       setIsLoading(false);
     }, 1000);
   };

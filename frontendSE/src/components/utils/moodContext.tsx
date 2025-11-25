@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { api } from '../../api';
 
 export interface MoodEntry {
   id: string;
@@ -22,14 +23,58 @@ interface MoodContextType {
 const MoodContext = createContext<MoodContextType | undefined>(undefined);
 
 export const MoodProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [moodEntries, setMoodEntries] = useState<MoodEntry[]>(() => {
-    const stored = localStorage.getItem('moodEntries');
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [moodEntries, setMoodEntries] = useState<MoodEntry[]>([]);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('moodEntries', JSON.stringify(moodEntries));
-  }, [moodEntries]);
+    let mounted = true;
+    async function resolveKey() {
+      const token = localStorage.getItem('token');
+      let key = 'moodEntries:anon';
+      if (token) {
+        try {
+          const res = await api.me(token);
+          const userObj = res?.user ?? res;
+          const id = userObj?._id ?? userObj?.id ?? userObj?.userId;
+          if (id) key = `moodEntries:${id}`;
+        } catch (e) {
+          // ignore
+        }
+      }
+      if (!mounted) return;
+      setStorageKey(key);
+
+      // migrate legacy global key into user-scoped key if present
+      try {
+        const legacy = localStorage.getItem('moodEntries');
+        if (legacy) {
+          const existing = localStorage.getItem(key);
+          if (!existing) localStorage.setItem(key, legacy);
+        }
+      } catch (e) {
+        // noop
+      }
+    }
+    resolveKey();
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      try { setMoodEntries(JSON.parse(stored)); }
+      catch { setMoodEntries([]); }
+    } else {
+      setMoodEntries([]);
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(moodEntries)); }
+    catch { /* ignore */ }
+  }, [moodEntries, storageKey]);
 
   const addMoodEntry = (entry: Omit<MoodEntry, 'id' | 'timestamp'>) => {
     const newEntry: MoodEntry = {

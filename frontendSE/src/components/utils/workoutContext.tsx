@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { api } from '../../api';
 
 interface Workout {
   id: number;
@@ -45,19 +46,74 @@ const WorkoutContext = createContext<WorkoutContextType | undefined>(undefined);
 
 export function WorkoutProvider({ children }: { children: ReactNode }) {
   const [scheduledWorkouts, setScheduledWorkouts] = useState<ScheduledWorkout[]>([]);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
 
-  // Load data from localStorage on mount
+  // Resolve per-user storage key (tries token -> api.me), migrate legacy key
   useEffect(() => {
-    const savedWorkouts = localStorage.getItem('scheduledWorkouts');
-    if (savedWorkouts) {
-      setScheduledWorkouts(JSON.parse(savedWorkouts));
+    let mounted = true;
+
+    async function resolveKey() {
+      const token = localStorage.getItem('token');
+      let key = 'scheduledWorkouts:anon';
+
+      if (token) {
+        try {
+          const res = await api.me(token);
+          const userObj = res?.user ?? res;
+          const id = userObj?._id ?? userObj?.id ?? userObj?.userId;
+          if (id) key = `scheduledWorkouts:${id}`;
+        } catch (err) {
+          // ignore and fallback to anon
+        }
+      }
+
+      if (!mounted) return;
+      setStorageKey(key);
+
+      // migrate legacy global key into user-scoped key if present
+      try {
+        const legacy = localStorage.getItem('scheduledWorkouts');
+        if (legacy) {
+          const existing = localStorage.getItem(key);
+          if (!existing) {
+            localStorage.setItem(key, legacy);
+          }
+        }
+      } catch (e) {
+        // noop
+      }
     }
+
+    resolveKey();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // Save to localStorage whenever data changes
+  // Load data from the resolved storage key
   useEffect(() => {
-    localStorage.setItem('scheduledWorkouts', JSON.stringify(scheduledWorkouts));
-  }, [scheduledWorkouts]);
+    if (!storageKey) return;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        setScheduledWorkouts(JSON.parse(saved));
+      } catch (e) {
+        setScheduledWorkouts([]);
+      }
+    } else {
+      setScheduledWorkouts([]);
+    }
+  }, [storageKey]);
+
+  // Persist into the resolved storage key whenever data changes
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(scheduledWorkouts));
+    } catch (e) {
+      // ignore quota errors
+    }
+  }, [scheduledWorkouts, storageKey]);
 
   const addScheduledWorkout = (workout: Omit<ScheduledWorkout, 'id'>) => {
     const newWorkout: ScheduledWorkout = {

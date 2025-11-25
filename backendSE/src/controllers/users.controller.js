@@ -17,10 +17,35 @@ exports.getMe = async (req, res, next) => {
 exports.updateMe = async (req, res, next) => {
   try {
     const updates = {};
-    const allowed = ['name','age','gender','heightCm','weightKg','lifestyle','goals','medicalConditions','medications','avatarUrl','preferences','isOnboarded'];
+    // allow both frontend field names and legacy aliases (heightCm/weightKg)
+    const allowed = ['name','age','gender','height','weight','heightCm','weightKg','lifestyle','goals','medicalConditions','medications','avatarUrl','preferences','isOnboarded'];
+
     for (const key of allowed) {
-      if (req.body[key] !== undefined) updates[key] = req.body[key];
+      if (req.body[key] === undefined) continue;
+
+      // map aliases to canonical fields stored in DB
+      if (key === 'heightCm') {
+        const val = Number(req.body[key]);
+        if (!Number.isNaN(val)) updates.height = val;
+        continue;
+      }
+
+      if (key === 'weightKg') {
+        const val = Number(req.body[key]);
+        if (!Number.isNaN(val)) updates.weight = val;
+        continue;
+      }
+
+      // convert numeric height/weight strings to numbers
+      if (key === 'height' || key === 'weight') {
+        const val = Number(req.body[key]);
+        updates[key] = Number.isNaN(val) ? req.body[key] : val;
+        continue;
+      }
+
+      updates[key] = req.body[key];
     }
+
     const user = await User.findByIdAndUpdate(req.user._id, { $set: updates }, { new: true, runValidators: true });
     res.json({ user });
   } catch (err) {

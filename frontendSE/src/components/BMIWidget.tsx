@@ -7,7 +7,7 @@ import { Progress } from './ui/progress';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { calculateAllHealthMetrics } from './utils/healthCalculations';
-
+import { updateProfile } from "../api/index";
 interface BMIWidgetProps {
   userProfile: {
     age: number;

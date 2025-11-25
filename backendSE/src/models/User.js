@@ -14,8 +14,8 @@ const UserSchema = new Schema({
   loginMethod: { type: String, enum: ['email','google','facebook','apple'], default: 'email' },
   age: { type: Number },
   gender: { type: String, enum: ['male','female','other'], default: 'other' },
-  heightCm: { type: Number },
-  weightKg: { type: Number },
+  height: { type: Number },
+  weight: { type: Number },
   lifestyle: { type: LifestyleSchema, default: () => ({}) },
   goals: { type: [String], default: [] },
   medicalConditions: { type: [String], default: [] },
@@ -41,9 +41,9 @@ UserSchema.index({ role: 1 });
 
 // Virtual: BMI
 UserSchema.virtual('bmi').get(function(){
-  if (!this.heightCm || !this.weightKg) return null;
-  const heightM = this.heightCm / 100;
-  const bmi = this.weightKg / (heightM * heightM);
+  if (!this.height || !this.weight) return null;
+  const heightM = this.height / 100;
+  const bmi = this.weight / (heightM * heightM);
   return Math.round(bmi * 10) / 10;
 });
 

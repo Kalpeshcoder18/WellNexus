@@ -14,6 +14,7 @@ const errorHandler = require('./middleware/error.middleware');
 const { requireAuth } = require('./middleware/auth.middleware');
 
 // routes
+
 const authRoutes = require('./routes/auth.routes');
 const usersRoutes = require('./routes/users.routes');
 const mealsRoutes = require('./routes/meals.routes');
@@ -29,7 +30,7 @@ const challengesRoutes = require('./routes/challenges.routes');
 const waterRoutes = require('./routes/water.routes');
 const journalRoutes = require('./routes/journal.routes');
 const meditationRoutes = require('./routes/meditation.routes');
-
+const therapyChatRouter = require('./routes/therapyChat');
 const Message = require('./models/Message');
 const Conversation = require('./models/Conversation');
 
@@ -49,6 +50,7 @@ app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+
 // simple rate limiter for public endpoints
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -58,6 +60,7 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+app.use('/api/therapy', therapyChatRouter);
 // Optional: serve a static folder for uploaded assets (if you store locally)
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 

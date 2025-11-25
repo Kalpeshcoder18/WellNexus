@@ -1535,6 +1535,17 @@ export default function SettingsSection({ userProfile, setUserProfile }: Setting
                     <Heart className="w-4 h-4 mr-2" />
                     {t('aboutUs')}
                   </Button>
+
+                  <Button
+  className="w-full bg-red-500 hover:bg-red-600 text-white mt-6"
+  onClick={() => {
+    localStorage.removeItem("token");
+    window.location.href = "/";
+  }}
+>
+  Log Out
+</Button>
+
                 </div>
                 
                 <div className="mt-6 pt-4 border-t text-center">
